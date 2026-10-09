@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Laboratory Assistant Chatbot</title>
+<style>
+  :root {
+    --primary: #2b4c7e;
+    --bg: #f4f6fa;
+    --bot-bubble: #eef3fb;
+    --user-bubble: #2b4c7e;
+    --escalate: #7e2b2b;
+    --escalate-bg: #fbeeee;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    display: flex;
+    justify-content: center;
+    padding: 24px 12px;
+  }
+  .app {
+    width: 100%;
+    max-width: 720px;
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+    display: flex;
+    flex-direction: column;
+    height: 85vh;
+    overflow: hidden;
+  }
+  header {
+    background: var(--primary);
+    color: white;
+    padding: 16px 20px;
+  }
+  header h1 { margin: 0; font-size: 1.1rem; }
+  header p { margin: 4px 0 0; font-size: 0.8rem; opacity: 0.85; }
+  #chat {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .msg {
+    max-width: 80%;
+    padding: 10px 14px;
+    border-radius: 12px;
+    line-height: 1.4;
+    font-size: 0.92rem;
+    white-space: pre-wrap;
+  }
+  .msg.user {
+    align-self: flex-end;
+    background: var(--user-bubble);
+    color: white;
+    border-bottom-right-radius: 2px;
+  }
+  .msg.bot {
+    align-self: flex-start;
+    background: var(--bot-bubble);
+    color: #222;
+    border-bottom-left-radius: 2px;
+  }
+  .msg.bot.escalate {
+    background: var(--escalate-bg);
+    color: var(--escalate);
+  }
+  .sources {
+    margin-top: 6px;
+    font-size: 0.75rem;
+    opacity: 0.7;
+  }
+  form {
+    display: flex;
+    gap: 8px;
+    padding: 12px;
+    border-top: 1px solid #e5e5e5;
+  }
+  input[type="text"] {
+    flex: 1;
+    padding: 10px 12px;
+    border: 1px solid #ccc;
+    border-radius: 8px;
+    font-size: 0.95rem;
+  }
+  button {
+    background: var(--primary);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 0 18px;
+    font-size: 0.95rem;
+    cursor: pointer;
+  }
+  button:disabled { opacity: 0.5; cursor: default; }
+  .hint { text-align: center; font-size: 0.75rem; color: #888; padding: 6px 0 0; }
+</style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1>AI Laboratory Assistant Chatbot</h1>
+      <p>Ask about project requirements, procedures, equipment, or troubleshooting for this lab.</p>
+    </header>
+    <div id="chat"></div>
+    <form id="chat-form">
+      <input id="question" type="text" placeholder="Ask a question about the lab..." autocomplete="off" />
+      <button type="submit" id="send-btn">Send</button>
+    </form>
+    <p class="hint">Backend: <span id="api-base"></span></p>
+  </div>
+
+<script>
+  // Change this if your backend runs somewhere other than localhost:8000.
+  const API_BASE = "http://localhost:8000";
+  document.getElementById("api-base").textContent = API_BASE;
+
+  const chat = document.getElementById("chat");
+  const form = document.getElementById("chat-form");
+  const input = document.getElementById("question");
+  const sendBtn = document.getElementById("send-btn");
+
+  function addMessage(text, sender, opts = {}) {
+    const div = document.createElement("div");
+    div.className = `msg ${sender}${opts.escalate ? " escalate" : ""}`;
+    div.textContent = text;
+    if (opts.sources && opts.sources.length) {
+      const src = document.createElement("div");
+      src.className = "sources";
+      src.textContent = "Source: " + opts.sources.join(", ");
+      div.appendChild(src);
+    }
+    chat.appendChild(div);
+    chat.scrollTop = chat.scrollHeight;
+    return div;
+  }
+
+  addMessage(
+    "Hi! I can answer questions about this lab's project requirements, procedures, equipment, and troubleshooting. What do you need help with?",
+    "bot"
+  );
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const question = input.value.trim();
+    if (!question) return;
+
+    addMessage(question, "user");
+    input.value = "";
+    sendBtn.disabled = true;
+    const loadingMsg = addMessage("Thinking...", "bot");
+
+    try {
+      const res = await fetch(`${API_BASE}/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question }),
+      });
+      const data = await res.json();
+      loadingMsg.remove();
+      if (!res.ok) {
+        addMessage(data.detail || "Something went wrong.", "bot", { escalate: true });
+      } else {
+        addMessage(data.answer, "bot", { escalate: data.escalate, sources: data.sources });
+      }
+    } catch (err) {
+      loadingMsg.remove();
+      addMessage("Could not reach the chatbot backend. Is it running?", "bot", { escalate: true });
+    } finally {
+      sendBtn.disabled = false;
+      input.focus();
+    }
+  });
+</script>
+</body>
+</html>
