@@ -9,13 +9,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 load_dotenv()
 import rag
+from auth import EmailRequest, VerifyRequest, authenticated_email, logout, request_code, verify_code
 
 app = FastAPI(title="AI Laboratory Assistant Chatbot")
 # Set allowed origins when exposing the backend to browsers.
@@ -46,16 +47,28 @@ def feedback_connection():
         created_at TEXT NOT NULL)""")
     return con
 
+@app.post("/auth/request-code")
+def auth_request_code(payload: EmailRequest):
+    return request_code(payload.email)
+
+@app.post("/auth/verify")
+def auth_verify(payload: VerifyRequest):
+    return verify_code(payload.email, payload.code)
+
+@app.post("/auth/logout")
+def auth_logout(result: dict = Depends(logout)):
+    return result
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
 
 @app.get("/stats")
-def stats():
+def stats(_email: str = Depends(authenticated_email)):
     return {"chunks_in_knowledge_base": rag.collection.count()}
 
 @app.post("/ingest")
-async def ingest(file: UploadFile = File(...)):
+async def ingest(file: UploadFile = File(...), _email: str = Depends(authenticated_email)):
     name = Path(file.filename or "").name
     suffix = Path(name).suffix.lower()
     if suffix not in (".pdf", ".txt", ".md"):
@@ -76,11 +89,11 @@ async def ingest(file: UploadFile = File(...)):
     return {"filename": name, "chunks_added": chunks}
 
 @app.post("/chat")
-def chat(request: ChatRequest):
+def chat(request: ChatRequest, _email: str = Depends(authenticated_email)):
     return rag.answer_question(request.question, [m.model_dump() for m in request.history])
 
 @app.post("/chat/stream")
-def stream_chat(request: ChatRequest):
+def stream_chat(request: ChatRequest, _email: str = Depends(authenticated_email)):
     def events():
         try:
             for event in rag.generate(request.question, [m.model_dump() for m in request.history]):
@@ -94,7 +107,7 @@ def stream_chat(request: ChatRequest):
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 @app.post("/feedback")
-def feedback(request: FeedbackRequest):
+def feedback(request: FeedbackRequest, _email: str = Depends(authenticated_email)):
     if request.rating not in (-1, 1):
         raise HTTPException(400, "Rating must be -1 or 1")
     with feedback_connection() as con:

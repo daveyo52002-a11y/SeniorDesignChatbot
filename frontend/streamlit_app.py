@@ -8,6 +8,57 @@ import streamlit as st
 API_BASE = "http://localhost:8000"
 st.set_page_config(page_title="AI Laboratory Assistant", page_icon="🧪")
 st.title("🧪 AI Laboratory Assistant")
+if "auth_token" not in st.session_state:
+    st.session_state.auth_token = None
+if "auth_email" not in st.session_state:
+    st.session_state.auth_email = ""
+if "pending_email" not in st.session_state:
+    st.session_state.pending_email = ""
+
+if not st.session_state.auth_token:
+    st.subheader("Wayne State email login")
+    st.info("Enter your @wayne.edu email to receive a six-digit login code.")
+    with st.form("email_form"):
+        email = st.text_input("Wayne State email", value=st.session_state.pending_email)
+        requested = st.form_submit_button("Send verification code")
+    if requested:
+        try:
+            response = requests.post(f"{API_BASE}/auth/request-code",
+                                     json={"email": email.strip()}, timeout=25)
+            response.raise_for_status()
+            st.session_state.pending_email = email.strip().lower()
+            st.success("Check your Wayne State inbox for the six-digit code.")
+        except requests.RequestException as exc:
+            st.error(f"Could not send code: {exc}")
+    if st.session_state.pending_email:
+        with st.form("verify_form"):
+            code = st.text_input("Six-digit code", max_chars=6)
+            verified = st.form_submit_button("Verify and log in")
+        if verified:
+            try:
+                response = requests.post(f"{API_BASE}/auth/verify",
+                                         json={"email": st.session_state.pending_email, "code": code},
+                                         timeout=15)
+                response.raise_for_status()
+                st.session_state.auth_token = response.json()["access_token"]
+                st.session_state.auth_email = st.session_state.pending_email
+                st.session_state.pending_email = ""
+                st.rerun()
+            except requests.RequestException as exc:
+                st.error(f"Verification failed: {exc}")
+    st.stop()
+
+AUTH_HEADERS = {"Authorization": f"Bearer {st.session_state.auth_token}"}
+with st.sidebar:
+    st.caption(f"Signed in as {st.session_state.auth_email}")
+    if st.button("Log out"):
+        try:
+            requests.post(f"{API_BASE}/auth/logout", headers=AUTH_HEADERS, timeout=5)
+        except requests.RequestException:
+            pass
+        for key in ("auth_token", "auth_email", "pending_email", "messages"):
+            st.session_state.pop(key, None)
+        st.rerun()
 st.caption("Answers grounded in uploaded laboratory documents")
 
 if "messages" not in st.session_state:
@@ -20,13 +71,13 @@ with st.sidebar:
         try:
             with st.spinner("Indexing document..."):
                 res = requests.post(f"{API_BASE}/ingest",
-                    files={"file": (uploaded.name, uploaded.getvalue())}, timeout=180)
+                    files={"file": (uploaded.name, uploaded.getvalue())}, headers=AUTH_HEADERS, timeout=180)
                 res.raise_for_status()
                 st.success(f"Indexed {res.json()['chunks_added']} chunks from {uploaded.name}")
         except requests.RequestException as exc:
             st.error(f"Upload failed: {exc}")
     try:
-        res = requests.get(f"{API_BASE}/stats", timeout=5)
+        res = requests.get(f"{API_BASE}/stats", headers=AUTH_HEADERS, timeout=5)
         res.raise_for_status()
         st.metric("Indexed chunks", res.json()["chunks_in_knowledge_base"])
     except requests.RequestException:
@@ -52,7 +103,7 @@ def feedback_controls(msg):
             try:
                 res = requests.post(f"{API_BASE}/feedback", json={
                     "message_id": mid, "question": msg["question"],
-                    "answer": msg["content"], "rating": rating}, timeout=10)
+                    "answer": msg["content"], "rating": rating}, headers=AUTH_HEADERS, timeout=10)
                 res.raise_for_status()
                 st.toast("Feedback saved")
             except requests.RequestException:
@@ -83,7 +134,7 @@ if question := st.chat_input("Ask about your course or lab..."):
         finished = False
         try:
             with requests.post(f"{API_BASE}/chat/stream", json={"question": question, "history": history},
-                               stream=True, timeout=(10, 180)) as res:
+                               headers=AUTH_HEADERS, stream=True, timeout=(10, 180)) as res:
                 res.raise_for_status()
                 for line in res.iter_lines(decode_unicode=True):
                     if not line:
