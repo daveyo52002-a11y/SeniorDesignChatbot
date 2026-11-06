@@ -12,3 +12,7 @@ backend/chroma_store/
 
 # OS
 .DS_Store
+
+# Authentication session data
+backend/auth.sqlite3
+backend/auth.sqlite3-*
