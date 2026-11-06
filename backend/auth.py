@@ -114,6 +114,7 @@ def verify_code(email, code):
         # Count incorrect guesses even when the code is invalid.
         if not hmac.compare_digest(row[0], code_digest(email, code)):
             con.execute("UPDATE codes SET attempts=attempts+1 WHERE email=?", (email,))
+            con.commit()
             raise HTTPException(401, "Incorrect verification code.")
         con.execute("DELETE FROM codes WHERE email=?", (email,))
         token = secrets.token_urlsafe(32)
