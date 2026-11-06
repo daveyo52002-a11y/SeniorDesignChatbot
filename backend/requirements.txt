@@ -5,3 +5,4 @@ ollama==0.3.3
 chromadb==0.5.5
 pypdf==5.0.1
 python-multipart==0.0.9
+email-validator>=2.2,<3
